@@ -1,0 +1,1 @@
+This folder contains seven memos from an array of datasets and models provided in class. Responsibilities included being able to pick models to use and interpret with a research questions I chose. Personally, I really enjoyed this course, given some direction but mostly open-ended on how we wished to write about certian findings. 

@@ -1,0 +1,1 @@
+This project was done using the NHANES dataset, creating our own research questions. This was a group project with two other graduate students. We all collaborated on the coding and writing when neccessary. 

@@ -1,0 +1,860 @@
+---
+title: "STATS551 Final Project"
+author: "Heleyna Tucker"
+date: "2024-12-10"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load in Packages
+
+```{r}
+library(tidyverse)
+library(rstan)
+library(dplyr)
+library(bayesplot)
+library(ggplot2)
+library(tidyr)
+library(brms)
+library(loo)
+```
+
+## Load in the Dataset
+
+```{r}
+rainfall <- read_csv('mumbai-monthly-rains.csv')
+```
+
+```{r}
+head(rainfall)
+```
+
+```{r}
+# Run some statistical summaries for dataset
+summary(rainfall)      
+str(rainfall)          
+```
+
+Here, we can see that July has the highest mean rainfall.
+
+Check for missing values and zeros:
+
+```{r}
+# Check for missing values
+colSums(is.na(rainfall))
+
+# Check for zeros (possible dry months)
+colSums(rainfall == 0)
+```
+
+Verify totals:
+
+```{r}
+rainfall$computed_total <- rowSums(rainfall[2:13])  # Sum monthly columns
+all.equal(rainfall$computed_total, rainfall$Total)  # Check if totals match
+
+```
+
+## Visualizations of data set and Initial Findings
+
+Plot of monthly rainfall
+
+```{r}
+# Pivot data to long format
+rainfall_long <- tidyr::pivot_longer(
+  rainfall,
+  cols = Jan:Dec,
+  names_to = "Month",
+  values_to = "Rainfall"
+)
+
+# Convert Month to a factor with the correct order
+rainfall_long$Month <- factor(rainfall_long$Month,
+                              levels = c("Jan", "Feb", "Mar", "April", "May", 
+                                         "June", "July", "Aug", "Sept", "Oct", 
+                                         "Nov", "Dec"))
+
+# Verify the levels of Month
+levels(rainfall_long$Month)
+```
+
+```{r}
+# Line plot with months ordered correctly
+ggplot(rainfall_long, aes(x = Year, y = Rainfall, color = Month)) +
+  geom_line() +
+  labs(title = "Monthly Rainfall Trends Over Years",
+       x = "Year", y = "Rainfall (mm)") +
+  scale_color_discrete(name = "Month")  # Ensure the legend is labeled correctly
+
+```
+
+Above, we can see that the summer months seem to have the most rainfall compared to other months.
+
+```{r}
+# Line plot for total annual rainfall
+ggplot(rainfall, aes(x = Year, y = Total)) +
+  geom_line(color = "blue") +
+  labs(title = "Annual Rainfall Over Years", x = "Year", y = "Total Rainfall (mm)")
+
+```
+
+Seasonal Patterns:
+
+```{r}
+# Create the boxplot
+ggplot(rainfall_long, aes(x = Month, y = Rainfall)) +
+  geom_boxplot(fill = "skyblue") +
+  labs(title = "Distribution of Monthly Rainfall",
+       x = "Month", y = "Rainfall (mm)") +
+  theme_minimal()
+```
+
+We can also see here that the Summer months have the highest average rainfall, followed by the early Fall months.
+
+Extreme events: identify and plot years with high/low rainfall
+
+```{r}
+# Threshold for extreme rainfall
+high_rainfall <- rainfall[rainfall$Total > quantile(rainfall$Total, 0.95), ]
+low_rainfall <- rainfall[rainfall$Total < quantile(rainfall$Total, 0.05), ]
+print(high_rainfall)
+print(low_rainfall)
+```
+
+```{r}
+ggplot(rainfall, aes(x = Year, y = Total)) +
+  geom_line(color = "blue") +
+  geom_point(data = high_rainfall, aes(x = Year, y = Total), color = "red", size = 2) +
+  geom_point(data = low_rainfall, aes(x = Year, y = Total), color = "green", size = 2) +
+  labs(title = "Annual Rainfall with Extreme Events Highlighted", x = "Year", y = "Total Rainfall (mm)")
+
+```
+
+As we can see above, there isn't a clear pattern of extreme rainfall, it does seem recently, there has been an increase of average rainfall.
+
+Explore Trends:
+
+```{r}
+# Fit a linear model for annual rainfall trend
+trend_model <- lm(Total ~ Year, data = rainfall)
+summary(trend_model)
+
+# Add trend line to the plot
+ggplot(rainfall, aes(x = Year, y = Total)) +
+  geom_line(color = "blue") +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = "red") +
+  labs(title = "Trend in Annual Rainfall Over Years", 
+       x = "Year",
+       y = "Total Rainfall (mm)")
+
+```
+
+```{r}
+Month_August <- rainfall[c('Year', 'Aug')]
+# Fit a linear model for annual rainfall trend
+trend_model <- lm(Aug ~ Year, data = Month_August)
+summary(trend_model)
+
+# Add trend line to the plot
+ggplot(Month_August, aes(x = Year, y = Aug)) +
+  geom_line(color = "blue") +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = "red") +
+  labs(title = "Trend in August Rainfall Over Years", 
+       x = "Year",
+       y = "Total Rainfall (mm)")
+```
+
+```{r}
+Month_July <- rainfall[c('Year', 'July')]
+# Fit a linear model for annual rainfall trend
+trend_model <- lm(July ~ Year, data = Month_July)
+summary(trend_model)
+
+# Add trend line to the plot
+ggplot(Month_July, aes(x = Year, y = July)) +
+  geom_line(color = "blue") +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = "red") +
+  labs(title = "Trend in July Rainfall Over Years", 
+       x = "Year",
+       y = "Total Rainfall (mm)")
+```
+
+```{r}
+Month_Mar <- rainfall[c('Year', 'Mar')]
+# Fit a linear model for annual rainfall trend
+trend_model <- lm(Mar ~ Year, data = Month_Mar)
+summary(trend_model)
+
+# Add trend line to the plot
+ggplot(Month_Mar, aes(x = Year, y = Mar)) +
+  geom_line(color = "blue") +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = "red") +
+  labs(title = "Trend in July Rainfall Over Years", 
+       x = "Year",
+       y = "Total Rainfall (mm)")
+```
+
+Note: low p-value but R\^2 and RSE are not that great. (lots of variability in years)
+
+Variability Analysis:
+
+```{r}
+sd(rainfall$Total)
+cv <- sd(rainfall$Total) / mean(rainfall$Total) * 100
+cv
+```
+
+Monthly Variability:
+
+```{r}
+apply(rainfall[2:13], 2, sd)  # Standard deviation for each month
+```
+
+The Summer months look to have the most variability. But the most linear trend, I will look into the monsoon months below:
+
+```{r}
+monsoon <- rainfall[c('Year', 'June', 'July', 'Aug', 'Sept')]
+```
+
+```{r}
+monsoon$Total <- monsoon$June + monsoon$July + monsoon$Aug + monsoon$Sept
+```
+
+```{r}
+head(monsoon)
+```
+
+```{r}
+# Fit a linear model for annual rainfall trend
+trend_model <- lm(Total ~ Year, data = monsoon)
+summary(trend_model)
+
+# Add trend line to the plot
+ggplot(monsoon, aes(x = Year, y = Total)) +
+  geom_line(color = "blue") +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = "red") +
+  labs(title = "Trend in Monsoon Rainfall Over Years", 
+       x = "Year",
+       y = "Total Rainfall (mm)")
+```
+
+## Using Bayesian Regression to model Monsoon Months Rain Trends over the years
+
+```{r}
+# Normalize Year for better model convergence
+monsoon$Year_norm <- monsoon$Year - min(monsoon$Year)
+```
+
+Use mean/sd functions to help set up prior distributions:
+
+```{r}
+print(sd(monsoon$Total))
+print(mean(monsoon$Total))
+```
+
+```{r}
+model <- "data {
+  int<lower=0> N;             // Number of data points
+  vector[N] Year;             // Normalized year values
+  vector[N] Total;            // Total rainfall
+}
+parameters {
+  real alpha;                 // Intercept
+  real beta;                  // Slope
+  real<lower=0> sigma;        // Standard deviation
+}
+model {
+  
+  // Priors
+  alpha ~ normal(2000, 300);    // Baseline rainfall
+  beta ~ normal(5, 10);      // Positive trend for monsoon
+  sigma ~ cauchy(0, 5);         // Residual variability
+  
+  // Likelihood
+  Total ~ normal(alpha + beta * Year, sigma); // Likelihood
+}
+generated quantities {
+  vector[N] y_pred;           // Posterior predictive samples
+  for (n in 1:N) {
+    y_pred[n] = normal_rng(alpha + beta * Year[n], sigma);
+  }
+}
+"
+```
+
+```{r}
+
+# Prepare data for Stan
+stan_data <- list(
+  N = nrow(monsoon),
+  Year = monsoon$Year_norm,
+  Total = monsoon$Total
+)
+
+```
+
+```{r}
+# Compile the Stan model
+stan_model <- stan_model(model_code = model)
+
+# Fit the model
+fit <- sampling(
+  stan_model, 
+  data = stan_data, 
+  iter = 4000, 
+  chains = 4, 
+  seed = 123
+)
+
+```
+
+```{r}
+# Print summary of results
+print(fit, pars = c("alpha", "beta", "sigma"), probs = c(0.025, 0.5, 0.975))
+```
+
+Postive Beta with all postitive CI means that on average, monsoon rain increases over time (each year)
+
+Predictive check:
+
+```{r}
+posterior <- as.matrix(fit)
+y_pred <- extract(fit, pars = "y_pred")$y_pred
+
+ppc_dens_overlay(y = monsoon$Total, yrep = y_pred[1:50, ])
+
+```
+
+```{r}
+mcmc_trace(as.array(fit), pars = c("alpha", "beta"))
+```
+
+```{r}
+library(ggplot2)
+
+posterior_means <- summary(fit)$summary
+alpha_mean <- posterior_means["alpha", "mean"]
+beta_mean <- posterior_means["beta", "mean"]
+
+ggplot(monsoon, aes(x = Year, y = Total)) +
+  geom_point() +
+  geom_abline(intercept = alpha_mean, slope = beta_mean, color = "blue") +
+  labs(title = "Trend in Total Monsoon Rainfall Over Years",
+       x = "Year",
+       y = "Total Rainfall")
+
+```
+
+## Predict Using past years for future years: Test/train split first
+
+```{r}
+# Example: Splitting data into train and test sets
+train_data <- monsoon %>% filter(Year <= 1990)
+test_data <- monsoon %>% filter(Year > 1990)
+
+# Normalize years (optional but recommended for numerical stability)
+train_data$Year_norm <- train_data$Year - min(train_data$Year)
+test_data$Year_norm <- test_data$Year - min(train_data$Year)
+
+```
+
+```{r}
+model2 <- "data {
+  int<lower=0> N_train;          // Number of training data points
+  int<lower=0> N_test;           // Number of test data points
+  vector[N_train] Year_train;    // Training year values
+  vector[N_train] Total_train;   // Training rainfall
+  vector[N_test] Year_test;      // Test year values
+}
+parameters {
+  real alpha;                    // Intercept
+  real beta;                     // Slope (trend)
+  real<lower=0> sigma;           // Noise
+}
+model {
+  // Priors
+  alpha ~ normal(700, 300);    // Baseline rainfall
+  beta ~ normal(5, 10);      // Positive trend for monsoon
+  sigma ~ cauchy(0, 5);         // Residual variability
+  
+  // Likelihood
+  Total_train ~ normal(alpha + beta * Year_train, sigma); // Likelihood for training data
+}
+generated quantities {
+  vector[N_test] Total_test_pred; // Posterior predictions for test set
+  for (n in 1:N_test) {
+    Total_test_pred[n] = normal_rng(alpha + beta * Year_test[n], sigma);
+  }
+}
+
+"
+```
+
+```{r}
+
+# Prepare data for Stan
+stan_data2 <- list(
+  N_train = nrow(train_data),
+  N_test = nrow(test_data),
+  Year_train = train_data$Year_norm,
+  Total_train = train_data$Total,
+  Year_test = test_data$Year_norm
+)
+
+
+```
+
+```{r}
+# Compile the Stan model
+stan_model2 <- stan_model(model_code = model2)
+
+# Fit the model
+fit2 <- sampling(
+  stan_model2, 
+  data = stan_data2, 
+  iter = 4000, 
+  chains = 4, 
+  seed = 123
+)
+
+```
+
+```{r}
+# Extract predictions for the test set
+test_predictions <- extract(fit2, pars = "Total_test_pred")$Total_test_pred
+```
+
+```{r}
+# Print summary of results
+print(fit2, pars = c("alpha", "beta", "sigma"), probs = c(0.025, 0.5, 0.975))
+```
+
+```{r}
+# Compute mean and intervals for the test predictions
+test_means <- apply(test_predictions, 2, mean)
+test_intervals <- apply(test_predictions, 2, quantile, probs = c(0.025, 0.975))
+
+# Add predictions to test data
+test_data$Total_pred <- test_means
+test_data$Pred_lower <- test_intervals[1, ]
+test_data$Pred_upper <- test_intervals[2, ]
+
+# Evaluate performance (e.g., RMSE)
+rmse <- sqrt(mean((test_data$Total - test_data$Total_pred)^2))
+print(paste("RMSE:", rmse))
+
+```
+
+```{r}
+test_means
+```
+
+```{r}
+test_intervals
+```
+
+```{r}
+ggplot(test_data, aes(x = Year, y = Total)) +
+  geom_point(color = "blue", size = 2) +
+  geom_line(aes(y = Total_pred), color = "red") +
+  geom_ribbon(aes(ymin = Pred_lower, ymax = Pred_upper), alpha = 0.2, fill = "red") +
+  labs(title = "Actual vs Predicted Rainfall on Test Data",
+       x = "Year", y = "Total Rainfall") +
+  theme_minimal()
+
+```
+
+Not sure if this can be predicted very well (Can only make findings about the overall trend of rainfall over the years not predict just based off of this) - would need other factors to predict well.
+
+## Try to predict with Quadratic Model:
+
+```{r}
+model3 <- "data {
+  int<lower=0> N_train;          // Number of training data points
+  int<lower=0> N_test;           // Number of test data points
+  vector[N_train] Year_train;    // Training year values
+  vector[N_train] Total_train;   // Training rainfall
+  vector[N_test] Year_test;      // Test year values
+}
+parameters {
+  real alpha;                    // Intercept
+  real beta;                     // Linear trend
+  real gamma;                    // Quadratic trend
+  real<lower=0> sigma;           // Noise
+}
+model {
+  Total_train ~ normal(alpha + beta * Year_train + gamma * square(Year_train), sigma); // Likelihood
+}
+generated quantities {
+  vector[N_test] Total_test_pred; // Predictions for test data
+  for (n in 1:N_test) {
+    Total_test_pred[n] = normal_rng(alpha + beta * Year_test[n] + gamma * square(Year_test[n]), sigma);
+  }
+}
+
+"
+```
+
+```{r}
+# Add normalized years and their squares
+train_data$Year_norm <- train_data$Year - min(train_data$Year)
+train_data$Year_norm2 <- train_data$Year_norm^2
+
+test_data$Year_norm <- test_data$Year - min(train_data$Year)
+test_data$Year_norm2 <- test_data$Year_norm^2
+
+# Prepare data for Stan
+stan_data3 <- list(
+  N_train = nrow(train_data),
+  N_test = nrow(test_data),
+  Year_train = train_data$Year_norm,
+  Total_train = train_data$Total,
+  Year_test = test_data$Year_norm
+)
+
+```
+
+```{r}
+# Compile the Stan model
+stan_model3 <- stan_model(model_code = model3)
+
+# Fit the model
+fit3 <- sampling(
+  stan_model3, 
+  data = stan_data3, 
+  iter = 4000, 
+  chains = 4, 
+  seed = 123
+)
+
+```
+
+```{r}
+# Print summary of the results
+print(fit3, pars = c("alpha", "beta", "gamma", "sigma"), probs = c(0.025, 0.5, 0.975))
+```
+
+```{r}
+# Print summary of results
+print(fit3, pars = c("alpha", "beta", "gamma", "sigma"), probs = c(0.025, 0.5, 0.975))
+```
+
+```{r}
+# Extract predictions for the test set
+test_predictions <- extract(fit3, pars = "Total_test_pred")$Total_test_pred
+
+# Compute mean and intervals
+test_means <- apply(test_predictions, 2, mean)
+test_intervals <- apply(test_predictions, 2, quantile, probs = c(0.025, 0.975))
+
+# Add predictions to test data
+test_data$Total_pred <- test_means
+test_data$Pred_lower <- test_intervals[1, ]
+test_data$Pred_upper <- test_intervals[2, ]
+
+# Evaluate performance (e.g., RMSE)
+rmse <- sqrt(mean((test_data$Total - test_data$Total_pred)^2))
+print(paste("RMSE:", rmse))
+
+```
+
+```{r}
+# Plot training data with fitted quadratic curve
+
+ggplot(test_data, aes(x = Year, y = Total)) +
+  geom_point(color = "blue") +
+  stat_function(
+    fun = function(x) {
+      alpha <- mean(extract(fit3, pars = "alpha")$alpha)
+      beta <- mean(extract(fit3, pars = "beta")$beta)
+      gamma <- mean(extract(fit3, pars = "gamma")$gamma)
+      x_norm <- x - min(train_data$Year)
+      alpha + beta * x_norm + gamma * x_norm^2
+    },
+    color = "red"
+  ) +
+  labs(title = "Quadratic Trend in Rainfall",
+       x = "Year", y = "Total Rainfall") +
+  theme_minimal()
+
+```
+
+Similar conclusions as above (not really good at predicting)
+
+## Hierarchical Model
+
+Next, I will use a Hierarchical Model to account for monsoon/non-monsoon months below. First I will make a dataset with this specification: rainfall_long2
+
+```{r}
+rainfall
+```
+
+```{r}
+
+
+# Load data and reshape 
+rainfall_long2 <- pivot_longer(
+  rainfall, 
+  cols = Jan:Dec, 
+  names_to = "Month", 
+  values_to = "Rainfall"
+)
+
+# Convert Month to numeric (1 = Jan, ..., 12 = Dec)
+rainfall_long2$Month <- match(rainfall_long2$Month, c( "Jan", "Feb", "Mar", "April", "May", "June", "July", "Aug", "Sept", "Oct", "Nov", "Dec"))
+
+# Add a time variable for trend analysis (cumulative months since 1901)
+rainfall_long2$Time <- (rainfall_long2$Year - min(rainfall_long2$Year)) *12 + rainfall_long2$Month
+
+```
+
+```{r}
+rainfall_long2
+```
+
+```{r}
+ggplot(rainfall_long2, aes(x = Time, y = Rainfall)) +
+  geom_point(color = "blue", size = 2) +
+  labs(title = "Scatterplot of Monthly Rainfall Trends",
+       x = "Month", y = "Total Rainfall") +
+  theme_minimal()
+```
+
+```{r}
+
+rainfall_long2$Season <- ifelse((rainfall_long2$Month <= 9 & rainfall_long2$Month >= 6), "Monsoon", "Non-Monsoon")
+
+ggplot(rainfall_long2, aes(x = Year, y = Rainfall, color = as.factor(Month))) +
+  geom_line() +
+  facet_wrap(~ Season, scales = "free_y") +
+  labs(
+    title = "Monthly Rainfall Trends",
+    x = "Year",
+    y = "Rainfall",
+    color = "Month"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+summary(rainfall_long2)
+```
+
+Use the below code to get the mean/sd for each group for priors:
+
+```{r}
+average_rainfall <- rainfall_long2 %>%
+  filter(Season == "Non-Monsoon") %>%
+  group_by(Year) %>%
+  summarize(total_rainfall = sum(Rainfall)) %>%
+  summarize(average_rainfall = sd(total_rainfall))
+average_rainfall
+```
+
+```{r}
+summary(subset(rainfall_long2, Season == 'Non-Monsoon'))
+```
+
+```{r}
+sd(subset(rainfall_long2, Season == 'Non-Monsoon')$Rainfall)
+```
+
+```{r}
+summary(subset(rainfall_long2, Season == 'Monsoon'))
+```
+
+```{r}
+print(sd(subset(rainfall_long2, Season == 'Monsoon')$Rainfall))
+```
+
+```{r}
+print(sd(subset(rainfall_long2, Season == 'Non-Monsoon')$Rainfall))
+```
+
+```{r}
+rainfall_long2
+```
+
+As expected, monsoon months (June-September) Have much more rainfall, making it beneficial to use a hierarchical model.
+
+```{r}
+# Map the "Season" variable to numeric values for Stan
+rainfall_long2$Season_numeric <- ifelse(rainfall_long2$Season == "Monsoon", 1, 2)
+
+# Prepare data for Stan
+stan_data4 <- list(
+  N = nrow(rainfall_long2),                 # Total number of data points
+  Season = rainfall_long2$Season_numeric,   # Numeric season indicator
+  Time = rainfall_long2$Time,               # Month continuous
+  Rainfall = rainfall_long2$Rainfall        # Rainfall data
+)
+```
+
+```{r}
+model4 <- "data {
+  int<lower=0> N;                // Number of data points
+  int<lower=1, upper=2> Season[N]; // Season indicator (1=Monsoon, 2=Non-Monsoon)
+  vector[N] Time;                // Month values
+  vector[N] Rainfall;            // Rainfall data
+}
+parameters {
+  vector[2] alpha;              // Intercepts for seasons
+  vector[2] beta;               // Slopes for seasons
+  real<lower=0> sigma;          // Residual standard deviation
+}
+model {
+  // Priors
+  alpha[1] ~ normal(500, 300);    // Baseline rainfall
+  alpha[2] ~ normal(14, 50);
+  beta[1] ~ normal(5, 10);      // Positive trend for monsoon
+  beta[2] ~ normal(5, 10);      //  postive trend for non-monsoon
+  sigma ~ cauchy(0, 5);         // Residual variability
+
+  // Likelihood
+  for (n in 1:N) {
+    Rainfall[n] ~ normal(alpha[Season[n]] + beta[Season[n]] * Time[n], sigma);
+  }
+}
+generated quantities {
+  vector[N] y_pred;  // Predicted rainfall for each observation
+
+  for (n in 1:N) {
+    y_pred[n] = normal_rng(alpha[Season[n]] + beta[Season[n]] * Time[n], sigma);
+  }
+}
+
+"
+```
+
+```{r}
+# Compile the Stan model
+stan_model4 <- stan_model(model_code = model4)
+
+# Fit the model
+fit4 <- sampling(
+  stan_model4, 
+  data = stan_data4, 
+  iter = 4000, 
+  chains = 4, 
+  seed = 123
+)
+
+```
+
+```{r}
+# Print results
+print(fit4, pars = c("alpha", "beta", "sigma"))
+```
+
+Alpha[1]: Baseline rainfall value for monsoon months (June-September) This is negative but makes sense with the given beta values (will end up being a positive prediction because year starts at 1901)
+
+Alpha[2]: Baseline rainfall value for non-monsoon months (Not June-September). Similar interpretation as above.
+
+Beta[1]: Change in rainfall for monsoon months (positive with a postive CI suggests increased rainfall overtime)
+
+Beta[2]: Change in rainfall for non-monsoon months (small value with a CI that includes 0 suggests no change in rainfall overtime)
+
+Posterior Predictive Checks:
+
+```{r}
+# Extract posterior samples
+posterior_samples <- extract(fit4)
+
+```
+
+```{r}
+# Extract observed and predicted rainfall
+y_pred <- extract(fit4, pars = "y_pred")$y_pred
+y_obs <- rainfall_long2$Rainfall
+
+```
+
+```{r}
+# Convert predictions to a data frame
+ppc_data <- data.frame(
+  observed = y_obs,
+  predicted = apply(y_pred, 2, mean)  # Posterior predictive means
+)
+
+# Histogram of observed vs. predicted
+ggplot(ppc_data, aes(x = observed)) +
+  geom_histogram(fill = "blue", alpha = 0.5, bins = 30) +
+  geom_histogram(aes(x = predicted), fill = "red", alpha = 0.5, bins = 30) +
+  labs(title = "Posterior Predictive Check: Observed vs. Predicted",
+       x = "Rainfall", y = "Frequency") +
+  theme_minimal()
+```
+
+```{r}
+ggplot(ppc_data, aes(x = observed, y = predicted)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Observed vs. Predicted Rainfall",
+       x = "Observed Rainfall", y = "Predicted Rainfall") +
+  theme_minimal()
+
+```
+
+```{r}
+# Overlay predicted distributions on observed data
+ppc_dens_overlay(y_obs, y_pred)
+```
+
+```{r}
+# Plot predictive intervals
+ppc_intervals(y_obs, y_pred, x = rainfall_long2$Year)
+```
+
+```{r}
+# Compute mean and variance for observed and predicted
+observed_mean <- mean(y_obs)
+predicted_mean <- mean(apply(y_pred, 2, mean))
+observed_var <- var(y_obs)
+predicted_var <- mean(apply(y_pred, 2, var))
+
+# Print summary
+cat("Observed Mean:", observed_mean, "\n")
+cat("Predicted Mean:", predicted_mean, "\n")
+cat("Observed Variance:", observed_var, "\n")
+cat("Predicted Variance:", predicted_var, "\n")
+
+```
+
+Caterpillar Plots:
+
+```{r}
+# Extract posterior samples from the Stan model
+posterior_samples <- as.array(fit4)  # Converts to an array for bayesplot
+
+```
+
+```{r}
+parameters <- c("alpha[1]", "alpha[2]", "beta[1]", "beta[2]")  # Specify parameters
+
+# Caterpillar plot for selected parameters
+mcmc_intervals(posterior_samples, pars = c("alpha[1]", "alpha[2]")) +
+  labs(title = "Posterior Distributions: Alpha Parameters",
+       x = "Posterior Estimate",
+       y = "Parameters") +
+  theme_minimal()
+
+```
+
+```{r}
+# Caterpillar plot for selected parameters
+mcmc_intervals(posterior_samples, pars = c("beta[1]", "beta[2]")) +
+  labs(title = "Posterior Distributions: Beta Parameters",
+       x = "Posterior Estimate",
+       y = "Parameters") +
+  theme_minimal()
+```
+
+```{r}
+mcmc_trace(as.array(fit4), pars = parameters)
+
+
+```

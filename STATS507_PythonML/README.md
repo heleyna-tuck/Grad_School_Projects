@@ -1,0 +1,1 @@
+Using a sentiment analysis model from hugging face, observations and insights were made about amazon packaging reviews. Helpful visualizations were made using python coupled with a final report and proposal.

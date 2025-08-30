@@ -1,0 +1,1 @@
+This file contains my Bayesian Statistics course final project material. This project was largely done on my own, being my first try at working with rstan in r. In this project, I look at monsoon rainfall data in Mumbai, India.

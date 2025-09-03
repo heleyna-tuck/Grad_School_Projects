@@ -1,0 +1,1 @@
+Here are a series of reviews I've recieved as a Graduate Student Instructor. I take pride in my ability to be well prepared, welcoming, and respectful when presenting and helping others. I think these reviews showcase my preformance. 

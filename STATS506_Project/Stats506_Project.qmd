@@ -1,0 +1,174 @@
+---
+title: "Stats506_Project"
+author: "Heleyna Tucker"
+format:
+  html:
+    embed-resources: true
+editor: visual
+---
+
+# Project - Light data in buildings
+
+### Load in data:
+
+```{r}
+library(tidyverse)
+energy <- read_csv('/Users/19892/Downloads/cbecs2018_final_public.csv')
+engery_comp <- energy[c("LTZHRP", "LTOHRP", "LTNHRP", "FLUORP", "CFLRP", "BULBP", "HALOP", "HIDP", "LEDP", "LEDP", "OTLTP"),]
+```
+
+Read in File below and get necessary data:
+
+```{r}
+energy <- read_csv('/Users/19892/Downloads/cbecs2018_final_public.csv')
+energy_comp <- energy[c("PUBID","LTZHRP", "LTOHRP", "LTNHRP", "FLUORP", "CFLRP", "BULBP", "HALOP", "HIDP", "LEDP", "OTLTP")]
+head(energy_comp)
+```
+
+```{r}
+#Rename columns to be easily identifiable
+colnames(energy_comp) <- c("buildingID", "pLitNoHours", "pLitOpen", "pLitOffHours", "pFluor", "pCompFluor", "pIncandes", "pHalogen", "pHID", "pLED", "pOther")
+head(energy_comp)
+```
+
+For the sake of data analysis, I will assume that the NA values are 0 percentage values:
+
+```{r}
+energy_comp[is.na(energy_comp)] <- 0
+
+#Add varivale to total the percentage of lights in each building:
+energy_comp["pTotalLights"] <- energy_comp$pFluor + energy_comp$pCompFluor + energy_comp$pIncandes + energy_comp$pHalogen + energy_comp$pHID + energy_comp$pLED + energy_comp$pOther
+
+```
+
+Because some totals add up to over/under 100% or 0% which means there was some inconsistency in the data collection for this dataset. For the sake of this project, I will remove these values from the data we will be doing the analysis on:
+
+```{r}
+length(which(energy_comp$pTotalLights ==100))
+length(energy_comp$pTotalLights)
+```
+
+As we can see above, there is about 80% of the data that has the percentage of lights that add up to 100%, still giving us a good amount of data to work with.
+
+```{r}
+#Remove rows of data that have pTotalLights not equal to 100
+energy_comp <- energy_comp[energy_comp$pTotalLights == 100, ]
+dim(energy_comp)
+head(energy_comp)
+```
+
+Look at a Summary:
+
+```{r}
+summary(energy_comp)
+```
+
+### Preliminary Graphs:
+
+```{r}
+correlation_matrix <- cor(energy_comp[, c("pLitOpen", "pLitOffHours", "pLitNoHours", "pFluor", "pCompFluor", "pIncandes", "pHalogen", "pHID", "pLED", "pOther")])
+correlation_matrix
+
+heatmap(correlation_matrix, 
+        col = colorRampPalette(c("blue", "white", "red"))(100),
+        scale = "column",  # Add a legend for columns
+        main = "Correlation Heatmap with Legend"
+)
+```
+
+Not many correlation differences in variables interested in.
+
+### Try KMeans clustering:
+
+Elbow Plot is graphed below:
+
+```{r}
+wcss <- vector("numeric", length = 15)  # Set the maximum number of clusters you want to consider
+
+for (i in 1:15) {
+  kmeans_result <- kmeans(energy_comp[, c("pFluor", "pCompFluor", "pIncandes", "pHalogen", "pHID", "pLED", "pOther")], centers = i)
+  wcss[i] <- kmeans_result$tot.withinss
+}
+```
+
+```{r}
+k_values <- 1:15  # Assuming you considered up to 10 clusters
+
+ggplot() +
+  geom_line(aes(x = k_values, y = wcss), color = "blue") +
+  geom_point(aes(x = k_values, y = wcss), color = "red") +
+  labs(title = "Elbow Method", x = "Number of Clusters (k)", y = "Within-Cluster Sum of Squares (WCSS)")
+
+```
+
+About k=4 is where the elbow is of the plot. Using k = 4 in kmeans clustering below:
+
+```{r}
+# Assuming df is your data frame with lighting percentages
+set.seed(123)  # for reproducibility
+k <- 4  # specify the number of clusters
+kmeans_result <- kmeans(energy_comp[, c("pLitOpen", "pLitOffHours", "pLitNoHours")], centers = k)
+energy_comp$cluster <- as.factor(kmeans_result$cluster)
+#Visualize first couple rows of the clustered data:
+head(energy_comp)
+```
+
+How many values in each cluster:
+
+```{r}
+n1 <- length(which(energy_comp$cluster == 1))
+n2 <- length(which(energy_comp$cluster == 2))
+n3 <- length(which(energy_comp$cluster == 3))
+n4 <- length(which(energy_comp$cluster == 4))
+n1
+n2
+n3
+n4
+```
+
+Summary Stats for each Cluster:
+
+```{r}
+# Calculate summary statistics for each cluster
+cluster_summary <- aggregate(. ~ cluster, data = energy_comp[, c("cluster", "pLitOpen", "pLitOffHours", "pLitNoHours","pFluor", "pCompFluor", "pIncandes", "pHalogen", "pHID", "pLED", "pOther")], mean)
+
+# Print the summary
+print(cluster_summary)
+```
+
+```{r}
+library(tidyr)
+
+
+# Reshape data for ggplot
+data_long <- gather(cluster_summary, key = "light_type", value = "percentage", -cluster)
+
+# Separate data for two bar charts
+bar_chart1_data <- data_long[data_long$light_type %in% c("pLitOpen", "pLitOffHours", "pLitNoHours"), ]
+bar_chart2_data <- data_long[!data_long$light_type %in% c("pLitOpen", "pLitOffHours", "pLitNoHours"), ]
+
+# Create bar chart for pLitOpen, pLitOffHours, and pLitNoHours with upper error bars
+p1 <- ggplot(bar_chart1_data, aes(x = factor(cluster), y = percentage, fill = light_type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_errorbar(aes(ymin = percentage, ymax = percentage + 5), position = position_dodge(width = 0.9), width = 0.25) +  # Show only upper error bars
+  labs(title = "Percentage of Lighting Types (pLitOpen, pLitOffHours, pLitNoHours) by Cluster",
+       x = "Cluster",
+       y = "Percentage") +
+  theme_minimal()
+
+# Create bar chart for the rest of the variables with upper error bars
+p2 <- ggplot(bar_chart2_data, aes(x = factor(cluster), y = percentage, fill = light_type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_errorbar(aes(ymin = percentage, ymax = percentage + 5), position = position_dodge(width = 0.9), width = 0.25) +  # Show only upper error bars
+  labs(title = "Percentage of Other Lighting Types by Cluster",
+       x = "Cluster",
+       y = "Percentage") +
+  theme_minimal()
+
+# Display the two plots separately
+p1
+p2
+
+```
+
+two plots and error bars.
